@@ -1,0 +1,20 @@
+[package]
+name = "api"
+version = "0.1.0"
+authors = ["hpx <hephex@fucina.io>"]
+license = "MIT"
+description = "abstraction for HTTP API clients"
+homepage = "https://github.com/hephex/api"
+repository = "https://github.com/hephex/api"
+documentation = ""
+keywords = ["api", "http", "client"]
+categories = ["web-programming::http-client"]
+readme = "README.md"
+
+[features]
+default = []
+use-hyper = ["hyper"]
+
+[dependencies.hyper]
+version = "0.10"
+optional = true
