@@ -6,6 +6,7 @@ extern crate serde;
 extern crate serde_derive;
 extern crate serde_json;
 
+use std::collections::BTreeMap;
 use std::io;
 use api::Client;
 
@@ -19,6 +20,7 @@ struct Delay {
 struct Info {
     origin: String,
     url: String,
+    headers: BTreeMap<String, String>,
 }
 
 impl api::Api for Delay {
@@ -39,7 +41,11 @@ impl api::Api for Delay {
     }
 
     fn headers(&self) -> api::Headers {
-        api::Headers::new()
+        let mut headers = api::Headers::new();
+
+        headers.insert("X-Request-ID".to_string(), vec!["abcde".to_string()]);
+
+        headers
     }
 
     fn body(&self) -> io::Empty {

@@ -85,10 +85,10 @@ impl api::Api for Delay {
         Query::new()
     }
 
-    fn headers(&self) -> api::Header {
-        let mut headers = api::Header::new();
+    fn headers(&self) -> api::Headers {
+        let mut headers = api::Headers::new();
 
-        headers.insert("X-Request-ID", "abcde");
+        headers.insert("X-Request-ID".to_string(), vec!["abcde".to_string()]);
 
         headers
     }
