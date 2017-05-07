@@ -164,7 +164,7 @@ pub trait Api {
     fn method(&self) -> Method;
 
     /// Return the URL path for this API request.
-    fn path(&self) -> &str;
+    fn path(&self) -> String;
 
     /// Return the URL query for this API request.
     fn query(&self) -> Query;
@@ -204,7 +204,7 @@ impl<A: Api> Client<A, hyper::Error> for hyper::Client {
     {
         let mut url = hyper::Url::parse(url)
             .map_err(|e| SendError::Client(hyper::Error::Uri(e)))?
-            .join(req.path())
+            .join(req.path().as_ref())
             .map_err(|e| SendError::Client(hyper::Error::Uri(e)))?;
         let mut body = req.body();
         let body = hyper::client::Body::ChunkedBody(&mut body);
