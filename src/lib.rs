@@ -153,6 +153,10 @@ impl HttpResponse for hyper::client::Response {
     }
 }
 
+
+pub fn identity<T>(x: T) -> T { x }
+
+
 /// `Api` represents a HTTP API exposing all the request parameters
 /// and a function to parse the HTTP response.
 pub trait Api {
@@ -180,6 +184,64 @@ pub trait Api {
     /// Parse the HTTP response, received from the actual client,
     /// into the type `Reply`.
     fn parse<Resp>(&self, &mut Resp) -> Result<Self::Reply, Self::Error> where Resp: HttpResponse;
+
+    fn transform<H, Q, B>(&self, h: H, q: Q, b: B) -> Transform<Self, H, Q, B>
+        where Self: Sized
+    {
+        Transform {
+            api: self,
+            h: h,
+            q: q,
+            b: b,
+        }
+    }
+}
+
+
+pub struct Transform<'a, A: 'a, H, Q, B>
+{
+    api: &'a A,
+    h: H,
+    q: Q,
+    b: B
+}
+
+impl<'a, A, H, Q, B, NewBody> Api for Transform<'a, A, H, Q, B>
+    where A: Api,
+          H: Fn(Headers) -> Headers,
+          Q: Fn(Query) -> Query,
+          B: Fn(A::Body) -> NewBody,
+          NewBody: io::Read
+{
+    type Reply = A::Reply;
+    type Body = NewBody;
+    type Error = A::Error;
+
+    fn method(&self) -> Method {
+        self.api.method()
+    }
+
+    fn path(&self) -> String {
+        self.api.path()
+    }
+
+    fn query(&self) -> Query {
+        (self.q)(self.api.query())
+    }
+
+    fn headers(&self) -> Headers {
+        (self.h)(self.api.headers())
+    }
+
+    fn body(&self) -> Self::Body {
+        (self.b)(self.api.body())
+    }
+
+    fn parse<Resp>(&self, resp: &mut Resp) -> Result<Self::Reply, Self::Error>
+        where Resp: HttpResponse
+    {
+        self.api.parse(resp)
+    }
 }
 
 
@@ -235,3 +297,109 @@ impl<A: Api> Client<A, hyper::Error> for hyper::Client {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct TestApi {
+        n: u8,
+    }
+
+    impl TestApi {
+        fn new(n: u8) -> TestApi {
+            TestApi { n: n }
+        }
+    }
+
+    impl Api for TestApi {
+        type Reply = Vec<u8>;
+        type Body = io::Empty;
+        type Error = ();
+
+        fn method(&self) -> Method { Method::Post }
+
+        fn path(&self) -> String { "/top".to_string() }
+
+        fn query(&self) -> Query {
+            vec![("n".to_string(), self.n.to_string())]
+        }
+
+        fn headers(&self) -> Headers { Headers::new() }
+
+        fn body(&self) -> Self::Body { io::empty() }
+
+        fn parse<Resp>(&self, resp: &mut Resp) -> Result<Self::Reply, Self::Error>
+            where Resp: HttpResponse
+        {
+            Ok(vec![])
+        }
+    }
+
+    #[test]
+    fn transform_request_identity() {
+        let api = TestApi::new(10);
+
+        let t_api = api.transform(identity, identity, identity);
+
+        assert_eq!(api.headers(), t_api.headers());
+        assert_eq!(api.query(), t_api.query());
+    }
+
+    #[test]
+    fn transform_api_append_data() {
+        let api = TestApi::new(10);
+
+        let t_api = api.transform(
+            |mut h: Headers| { h.insert("X-Request-ID".to_string(), vec!["abcdef123".to_string()]); h },
+            |mut q: Query| { q.push(("foo".to_string(), "bar".to_string())); q },
+            identity
+        );
+
+        let mut expected_headers = Headers::new();
+        expected_headers.insert("X-Request-ID".to_string(), vec!["abcdef123".to_string()]);
+
+        let expected_query = vec![
+            ("n".to_string(), "10".to_string()),
+            ("foo".to_string(), "bar".to_string())
+        ];
+
+        assert_eq!(expected_headers, t_api.headers());
+        assert_eq!(expected_query, t_api.query());
+    }
+
+    #[test]
+    fn transform_and_reuse_api() {
+        let api = TestApi::new(10);
+
+        let t1_api = api.transform(
+            |mut h: Headers| { h.insert("X-Request-ID".to_string(), vec!["abcdef123".to_string()]); h },
+            |mut q: Query| { q.push(("foo".to_string(), "bar".to_string())); q },
+            identity::<io::Empty>
+        );
+
+        let t2_api = api.transform(
+            |mut h: Headers| { h.insert("X-Request-ID".to_string(), vec!["321fedcba".to_string()]); h },
+            identity::<Query>,
+            identity::<io::Empty>
+        );
+
+        // check t1
+        let mut expected_headers = Headers::new();
+        expected_headers.insert("X-Request-ID".to_string(), vec!["abcdef123".to_string()]);
+
+        let expected_query = vec![
+            ("n".to_string(), "10".to_string()),
+            ("foo".to_string(), "bar".to_string())
+        ];
+
+        assert_eq!(expected_headers, t1_api.headers());
+        assert_eq!(expected_query, t1_api.query());
+
+        // check t2
+        let mut expected_headers = Headers::new();
+        expected_headers.insert("X-Request-ID".to_string(), vec!["321fedcba".to_string()]);
+
+        assert_eq!(expected_headers, t2_api.headers());
+        assert_eq!(api.query(), t2_api.query());
+    }
+}
