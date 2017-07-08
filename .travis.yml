@@ -3,3 +3,7 @@ rust:
   - stable
   - beta
   - nightly
+
+script:
+  - cargo build --verbose --lib
+  - cargo test --verbose --lib
